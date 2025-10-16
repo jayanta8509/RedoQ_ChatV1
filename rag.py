@@ -57,8 +57,7 @@ def initialize_models(model_name: str = "gpt-4o-mini"):
     
     print("✅ Models initialized successfully")
 
-def setup_pinecone_connections(json_index_name: str = "flightaware-data", 
-                              pdf_index_name: str = "pdf-documents"):
+def setup_pinecone_connections(json_index_name: str = "flightaware-data"):
     """Setup connections to Pinecone vector databases"""
     global json_vector_store, pdf_vector_store
     
@@ -73,30 +72,25 @@ def setup_pinecone_connections(json_index_name: str = "flightaware-data",
     # Connect to JSON index (FlightAware data)
     try:
         json_index = pc.Index(json_index_name)
+        
+        # Check index stats
+        stats = json_index.describe_index_stats()
+        total_vectors = stats.get('total_vector_count', 0)
+        print(f"📊 JSON Index '{json_index_name}' has {total_vectors} vectors")
+        
+        if total_vectors == 0:
+            print(f"⚠️ WARNING: JSON index '{json_index_name}' is EMPTY! No vectors found.")
+            print("💡 You need to upload data first using vector_database_manager.py")
+        
         json_vector_store = PineconeVectorStore(
             embedding=embeddings,
             index=json_index
         )
         print(f"✅ Connected to JSON vector store: {json_index_name}")
     except Exception as e:
-        print(f"⚠️ Could not connect to JSON index: {e}")
+        print(f"❌ Could not connect to JSON index '{json_index_name}': {e}")
+        print("💡 Make sure the index exists and has data uploaded")
         json_vector_store = None
-    
-    # Connect to PDF index (documentation and manuals) - Optional
-    if pdf_index_name:
-        try:
-            pdf_index = pc.Index(pdf_index_name)
-            pdf_vector_store = PineconeVectorStore(
-                embedding=embeddings,
-                index=pdf_index
-            )
-            print(f"✅ Connected to PDF vector store: {pdf_index_name}")
-        except Exception as e:
-            print(f"ℹ️ PDF index not found (optional): {pdf_index_name}")
-            pdf_vector_store = None
-    else:
-        pdf_vector_store = None
-        print("ℹ️ PDF index disabled")
 
 def create_retrieval_tools():
     """Create retrieval tools for different data sources"""
@@ -105,10 +99,25 @@ def create_retrieval_tools():
     def retrieve_flightaware_data(query: str):
         """Retrieve FlightAware flight tracking and aviation data from JSON knowledge base."""
         if not json_vector_store:
+            print("⚠️ JSON vector store not available")
             return "JSON vector store not available", []
         
         try:
+            print(f"🔍 Searching JSON vector store for: '{query}'")
+            
+            # Use similarity_search_with_score to see actual scores
             retrieved_docs = json_vector_store.similarity_search(query, k=5)
+            
+            print(f"✅ Retrieved {len(retrieved_docs)} documents from JSON vector store")
+            
+            if not retrieved_docs:
+                print("⚠️ No documents found in JSON vector store for this query")
+                return "No relevant FlightAware data found for this query.", []
+            
+            # Log document titles for debugging
+            for i, doc in enumerate(retrieved_docs, 1):
+                print(f"   Doc {i}: {doc.metadata.get('title', 'Unknown')[:80]}...")
+            
             serialized = "\n\n".join(
                 (f"Source: {doc.metadata.get('url', 'Unknown')}\n"
                  f"Title: {doc.metadata.get('title', 'Unknown')}\n"
@@ -118,28 +127,10 @@ def create_retrieval_tools():
             )
             return serialized, retrieved_docs
         except Exception as e:
+            print(f"❌ Error retrieving FlightAware data: {e}")
             return f"Error retrieving FlightAware data: {e}", []
     
-    @tool(response_format="content_and_artifact")
-    def retrieve_documentation_data(query: str):
-        """Retrieve technical documentation, manuals, and reference materials from PDF knowledge base."""
-        if not pdf_vector_store:
-            return "PDF vector store not available", []
-        
-        try:
-            retrieved_docs = pdf_vector_store.similarity_search(query, k=3)
-            serialized = "\n\n".join(
-                (f"Source: {doc.metadata.get('source', 'Unknown')}\n"
-                 f"Category: {doc.metadata.get('category', 'Unknown')}\n"
-                 f"Data Source: PDF\n"
-                 f"Content: {doc.page_content}")
-                for doc in retrieved_docs
-            )
-            return serialized, retrieved_docs
-        except Exception as e:
-            return f"Error retrieving documentation data: {e}", []
-    
-    tools = [retrieve_flightaware_data, retrieve_documentation_data]
+    tools = [retrieve_flightaware_data]
     print("✅ Retrieval tools setup complete")
     return tools
 
@@ -352,7 +343,6 @@ def setup_agent(tools):
     print("✅ FlightAware RAG agent setup complete")
 
 def initialize_rag_system(json_index_name: str = "flightaware-data",
-                         pdf_index_name: str = "pdf-documents",
                          model_name: str = "gpt-4o-mini"):
     """Initialize the complete RAG system"""
     print("✈️ Initializing FlightAware RAG System...")
@@ -361,7 +351,7 @@ def initialize_rag_system(json_index_name: str = "flightaware-data",
     initialize_models(model_name)
     
     # Setup Pinecone connections
-    setup_pinecone_connections(json_index_name, pdf_index_name)
+    setup_pinecone_connections(json_index_name)
     
     # Create retrieval tools
     tools = create_retrieval_tools()
@@ -405,7 +395,7 @@ def get_response(message: str, user_id: str, use_agent: bool = False) -> Dict[st
         use_agent: Whether to use agent mode for complex queries
         
     Returns:
-        Dict with response data including data source information
+        Dict with response data including data source information and URLs
     """
     try:
         config = get_user_config(user_id)
@@ -416,6 +406,7 @@ def get_response(message: str, user_id: str, use_agent: bool = False) -> Dict[st
             "response": "",
             "mode": "agent" if use_agent else "assistant",
             "data_source": "none",
+            "source_urls": [],
             "timestamp": time.time(),
             "status_code": 200
         }
@@ -456,20 +447,54 @@ def get_response(message: str, user_id: str, use_agent: bool = False) -> Dict[st
             response_data["status_code"] = 500
             return response_data
         
-        # Analyze data sources from tool messages
+        # Analyze data sources and extract URLs from tool messages
         data_sources_used = set()
+        source_urls = []
+        
         try:
             for msg in all_messages:
                 if hasattr(msg, 'type') and msg.type == "tool":
                     if hasattr(msg, 'content') and msg.content:
                         content = str(msg.content)
+                        
+                        # Detect data source type
                         if "Data Source: JSON" in content:
                             data_sources_used.add("json")
                         if "Data Source: PDF" in content:
                             data_sources_used.add("pdf")
+                        
+                        # Extract URLs from content
+                        # Look for "Source: <URL>" pattern in the tool message
+                        import re
+                        url_pattern = r'Source:\s*(https?://[^\s\n]+)'
+                        urls_found = re.findall(url_pattern, content)
+                        source_urls.extend(urls_found)
+                    
+                    # Also check artifact if available (retrieved documents)
+                    if hasattr(msg, 'artifact') and msg.artifact:
+                        try:
+                            # artifact contains the original Document objects
+                            for doc in msg.artifact:
+                                if hasattr(doc, 'metadata') and 'url' in doc.metadata:
+                                    url = doc.metadata['url']
+                                    if url and url != 'Unknown':
+                                        source_urls.append(url)
+                        except Exception as artifact_error:
+                            print(f"Warning: Error extracting URLs from artifact: {artifact_error}")
+        
         except Exception as e:
             print(f"Warning: Error analyzing data sources: {e}")
             # Continue without data source info
+        
+        # Remove duplicate URLs while preserving order
+        unique_urls = []
+        seen = set()
+        for url in source_urls:
+            if url not in seen:
+                seen.add(url)
+                unique_urls.append(url)
+        
+        response_data["source_urls"] = unique_urls
         
         # Determine data source
         if len(data_sources_used) > 1:
@@ -496,6 +521,7 @@ def get_response(message: str, user_id: str, use_agent: bool = False) -> Dict[st
             "error": str(e),
             "mode": "error",
             "data_source": "none",
+            "source_urls": [],
             "timestamp": time.time(),
             "status_code": 500
         }
@@ -637,15 +663,15 @@ def demo_flightaware_scenarios():
     
     print("\n✅ Demo complete!")
 
-if __name__ == "__main__":
-    # Choose demo or interactive mode
-    print("✈️ FlightAware RAG Chatbot")
-    print("1. Interactive Chat")
-    print("2. Demo Scenarios")
+# if __name__ == "__main__":
+#     # Choose demo or interactive mode
+#     print("✈️ FlightAware RAG Chatbot")
+#     print("1. Interactive Chat")
+#     print("2. Demo Scenarios")
     
-    choice = input("\nChoose mode (1 or 2): ").strip()
+#     choice = input("\nChoose mode (1 or 2): ").strip()
     
-    if choice == "2":
-        demo_flightaware_scenarios()
-    else:
-        interactive_flightaware_chat()
+#     if choice == "2":
+#         demo_flightaware_scenarios()
+#     else:
+#         interactive_flightaware_chat()

@@ -71,14 +71,14 @@ app.add_middleware(
 class ChatRequest(BaseModel):
     user_id: str = Field(..., description="Unique identifier for the user", min_length=1, max_length=100)
     query: str = Field(..., description="User's message/question", min_length=1, max_length=2000)
-    use_agent: bool = Field(False, description="Whether to use agent mode for complex queries")
+    use_agent: bool = Field(True, description="Whether to use agent mode for complex queries")
     
     model_config = {
         "json_schema_extra": {
             "example": {
                 "user_id": "user123",
                 "query": "How does FlightAware track flights globally?",
-                "use_agent": False
+                "use_agent": True
             }
         }
     }
@@ -89,6 +89,7 @@ class ChatResponse(BaseModel):
     response: str = Field(..., description="AI assistant response")
     mode: str = Field(..., description="Processing mode used (assistant/agent/error)")
     data_source: Optional[str] = Field(None, description="Data source used for retrieval (json/pdf/both/none)")
+    source_urls: Optional[list] = Field(default_factory=list, description="List of source URLs from retrieved documents")
     timestamp: float = Field(..., description="Unix timestamp of response")
     error: Optional[str] = Field(None, description="Error message if any")
     status_code: int = Field(200, description="HTTP status code")
@@ -101,6 +102,7 @@ class ChatResponse(BaseModel):
                 "response": "FlightAware tracks flights globally using a comprehensive network of data sources...",
                 "mode": "assistant",
                 "data_source": "json",
+                "source_urls": ["https://www.flightaware.com/about/", "https://www.flightaware.com/commercial/"],
                 "timestamp": 1640995200.0,
                 "error": None,
                 "status_code": 200
@@ -172,7 +174,7 @@ async def chat_endpoint(request: ChatRequest):
     - Retrieval from FlightAware JSON knowledge base
     - Expert aviation intelligence responses
     - Structured, authoritative answers
-    - Data source tracking (json/pdf/both/none)
+    - Data source tracking (json)
     """
     if not system_initialized:
         raise HTTPException(

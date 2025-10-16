@@ -546,7 +546,3 @@ python app.py
 
 ---
 
-**Made with ❤️ for intelligent information retrieval**
-
-*Questions? Check out `README_SIMPLE.md` for a detailed, non-technical guide!*
-

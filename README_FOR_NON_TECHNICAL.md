@@ -631,7 +631,4 @@ python test_json_upload.py
 
 **Then sit back and watch the magic happen! ✨**
 
----
-
-*Made with ❤️ for people who want smart AI without the complexity*
 
