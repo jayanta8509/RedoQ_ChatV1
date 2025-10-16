@@ -1,0 +1,9 @@
+{
+  "data_type": "json",
+  "embedding_model": "text-embedding-3-large",
+  "index_name": "flightaware-data",
+  "json_file": "flightaware_data.json",
+  "created_date": "2025-10-17T02:26:30.725350",
+  "total_records": 72,
+  "pinecone_index_stats": "{'dimension': 3072,\n 'index_fullness': 0.0,\n 'metric': 'cosine',\n 'namespaces': {'': {'vector_count': 1282}},\n 'total_vector_count': 1282,\n 'vector_type': 'dense'}"
+}
