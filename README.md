@@ -457,11 +457,6 @@ Contributions welcome! Areas for improvement:
 - Caching layer
 - Analytics dashboard
 
----
-
-## 📜 License
-
-MIT License - Feel free to use in your projects!
 
 ---
 
