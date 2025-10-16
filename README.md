@@ -470,14 +470,6 @@ Contributions welcome! Areas for improvement:
 
 ---
 
-## 📞 Support
-
-- **Documentation:** See `docs/` folder
-- **API Docs:** http://localhost:8000/docs
-- **Issues:** Check `SERVER_STATUS.md`
-
----
-
 ## 🎓 Learning Resources
 
 ### Beginner
