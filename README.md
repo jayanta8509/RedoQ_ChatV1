@@ -534,7 +534,4 @@ python app.py
 # Visit: http://localhost:8000/docs
 ```
 
-**That's it! You now have an AI expert for your FlightAware data!** ✨
-
----
 
